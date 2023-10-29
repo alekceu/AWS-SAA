@@ -1,2 +1,2 @@
 # AWS-SAA
-AWS Solition Architect Associate
+AWS Solition Architect Associate Course
