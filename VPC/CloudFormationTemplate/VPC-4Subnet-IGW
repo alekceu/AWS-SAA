@@ -48,13 +48,15 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${EnvironmentName} IGW
-          
+
   VPCGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
       InternetGatewayId: !Ref InternetGateway
       VpcId: !Ref VPC
-  
+
+#create elastic IP and then nat GW and add rule to route table
+
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
@@ -147,6 +149,89 @@ Resources:
       RouteTableId: !Ref PrivatRouteTable
       SubnetId: !Ref PrivateSubnet2
 
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "SGforSSH22WEB80"
+      GroupDescription: "SSH WEB"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  InstanceDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "SGforDB"
+      GroupDescription: "SQL"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  WebServer1:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0416c18e75bd69567
+      InstanceType: t3.micro
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds: 
+        - !Ref InstanceSecurityGroup
+      KeyName: Stockholm
+      Tags:
+        - Key: Name
+          Value: WebServer1
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum install -y httpd
+          sudo yum install php php-mysqli -y
+          cd /var/www/html
+          sudo wget https://wordpress.org/latest.tar.gz
+          sudo tar -xvf latest.tar.gz
+          sudo rm latest.tar.gz
+          sudo mv wordpress/* .
+          sudo rm -rf wordpress/
+          sudo mv wp-config-sample.php wp-config.php
+          usermod -a -G apache ec2-user
+          chown -R ec2-user:apache /var/www
+          systemctl start httpd
+          systemctl enable httpd
+
+  DBServer2:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0416c18e75bd69567
+      InstanceType: t3.micro
+      SubnetId: !Ref PublicSubnet1
+      SecurityGroupIds: 
+        - !Ref InstanceDBSecurityGroup
+      KeyName: Stockholm
+      Tags:
+        - Key: Name
+          Value: DBServer2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          wget https://dev.mysql.com/get/mysql80-community-release-el9-1.noarch.rpm
+          sudo yum install mysql80-community-release-el9-1.noarch.rpm -y
+          dnf repolist enabled | grep "mysql.*-community.*"
+          sudo dnf install mysql-community-server -y
+          echo "skip-grant-tables" >> /etc/my.cnf
+          sudo systemctl restart mysqld
+             
 Outputs:
   VPC:
     Description: A reference to the created VPC
