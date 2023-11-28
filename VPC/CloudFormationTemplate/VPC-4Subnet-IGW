@@ -1,5 +1,5 @@
-Description: This templte deploy VPC with four subnet (2 public and 2 privat) in two AZs
-
+Description: This templte deploy VPC with four subnet (2 public and 2 privat) in two AZs, two Instances - WebServer and DBServer, InternetGW + NATGW and set up RT, SG
+#
 Parameters:
   EnvironmentName:
     Description: An environment name that is prefixed to resource names
@@ -55,7 +55,21 @@ Resources:
       InternetGatewayId: !Ref InternetGateway
       VpcId: !Ref VPC
 
-#create elastic IP and then nat GW and add rule to route table
+  NatGwEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: EIPNATGW
+
+  NATGW01:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGwEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: NATGW01      
 
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
@@ -102,6 +116,14 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGateway
+
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    DependsOn: NATGW01
+    Properties:
+      RouteTableId: !Ref PrivatRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref NATGW01
 
   PublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -180,6 +202,10 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
 
   WebServer1:
     Type: AWS::EC2::Instance
@@ -207,7 +233,7 @@ Resources:
           sudo mv wp-config-sample.php wp-config.php
           usermod -a -G apache ec2-user
           chown -R ec2-user:apache /var/www
-          systemctl start httpd
+          systemctl stadrt httpd
           systemctl enable httpd
 
   DBServer2:
@@ -215,7 +241,7 @@ Resources:
     Properties:
       ImageId: ami-0416c18e75bd69567
       InstanceType: t3.micro
-      SubnetId: !Ref PublicSubnet1
+      SubnetId: !Ref PrivateSubnet1
       SecurityGroupIds: 
         - !Ref InstanceDBSecurityGroup
       KeyName: Stockholm
@@ -229,7 +255,8 @@ Resources:
           sudo yum install mysql80-community-release-el9-1.noarch.rpm -y
           dnf repolist enabled | grep "mysql.*-community.*"
           sudo dnf install mysql-community-server -y
-          echo "skip-grant-tables" >> /etc/my.cnf
+          sudo grep 'temporary password' /var/log/mysqld.log > /home/ec2-user/mysqlpassforroot
+          echo "bind-address:0.0.0.0" >> /etc/my.cnf
           sudo systemctl restart mysqld
              
 Outputs:
